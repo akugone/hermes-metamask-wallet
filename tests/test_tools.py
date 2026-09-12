@@ -78,6 +78,17 @@ def test_login_complete_rejects_garbage(tools, monkeypatch):
     assert out["error"]["code"] == "INVALID_TOKEN" and calls == []
 
 
+def test_login_complete_never_falls_back_to_argv(tools, monkeypatch):
+    token = "cli_" + "a" * 40 + ":" + "b" * 40
+    calls = _install_fake_run(tools, monkeypatch, [
+        (lambda a: a == ["login"], {"ok": False, "error": {"code": "TOKEN_INVALID", "message": "bad"}}),
+    ])
+    out = json.loads(tools.mm_setup({"action": "login_complete", "token": token}))
+    assert out["ok"] is False and out["error"]["code"] == "TOKEN_INVALID"
+    assert all(token not in " ".join(c[0]) for c in calls)
+    assert token not in json.dumps(out)
+
+
 def test_login_complete_uses_env_not_argv(tools, monkeypatch):
     token = "cli_" + "a" * 40 + ":" + "b" * 40
     calls = _install_fake_run(tools, monkeypatch, [

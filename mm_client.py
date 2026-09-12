@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 MM_PACKAGE = "@metamask/agent-wallet"
+MM_INSTALL_SPEC = f"{MM_PACKAGE}@6"  # pinned major: a new major is opted into, not auto-installed
 MIN_CLI_VERSION = (6, 2, 0)
 DEFAULT_TIMEOUT = 90
 MAX_RAW_OUTPUT = 4000
@@ -228,13 +229,13 @@ def version_ok(ver: Optional[str]) -> bool:
 
 
 def install_cli(timeout: int = 600) -> Dict[str, Any]:
-    """``npm install -g @metamask/agent-wallet@latest``. Returns the envelope with the version."""
+    """``npm install -g @metamask/agent-wallet@6``. Returns the envelope with the version."""
     npm = find_npm()
     if npm is None:
         return error("NPM_NOT_FOUND", "npm is not available, so the mm CLI cannot be installed.",
                      "Install Node.js 22.18+ (https://nodejs.org) and try again.")
     try:
-        proc = subprocess.run([npm, "install", "-g", f"{MM_PACKAGE}@latest"], capture_output=True,
+        proc = subprocess.run([npm, "install", "-g", MM_INSTALL_SPEC], capture_output=True,
                               text=True, timeout=timeout, env=node_env(), stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         return error("NPM_TIMEOUT", "npm install took too long.", "Retry once; check the network.")

@@ -76,12 +76,8 @@ def _resolve_erc20(token: str, chain_id: int) -> Tuple[Optional[str], Optional[i
     return None, None, f"Could not resolve token {token} on chain {chain_id}; pass its 0x contract address."
 
 
-def _dump(payload: Dict[str, Any]) -> str:
-    return json.dumps(payload, ensure_ascii=False, default=str)
-
-
-def _bad(message: str, hint: str = "") -> str:
-    return _dump(mm.error("INVALID_INPUT", message, hint))
+_dump = tools._dump
+_bad = tools._bad
 
 
 # ---------------------------------------------------------------------------
@@ -212,12 +208,11 @@ def describe(tool_name: str, args: Dict[str, Any]) -> Optional[str]:
         if err:
             return None
         if v["kind"] == "message":
-            preview = v["message"].replace("\n", " ")
-            preview = preview[:80] + ("…" if len(preview) > 80 else "")
+            preview = jobs.clean_text(v["message"], limit=80)
             return f"Sign the message \"{preview}\" with your MetaMask wallet on {jobs.chain_label(v['chain_id'])}"
         domain = v["payload"].get("domain", {})
-        who = domain.get("name") if isinstance(domain, dict) else None
-        what = v["intent"] or f"{v['payload'].get('primaryType')} typed data"
+        who = jobs.clean_text(domain.get("name"), limit=60) if isinstance(domain, dict) and domain.get("name") else None
+        what = jobs.clean_text(v["intent"], limit=120) if v["intent"] else f"{jobs.clean_text(v['payload'].get('primaryType'), limit=40)} typed data"
         return f"Sign EIP-712 {what}" + (f" for {who}" if who else "") + f" on {jobs.chain_label(v['chain_id'])}"
     return None
 
@@ -275,12 +270,12 @@ def mm_transfer(args: Dict[str, Any], **kwargs: Any) -> str:
             addr, decimals, rerr = _resolve_erc20(v["token"], v["chain_id"])
             if rerr:
                 return _dump(mm.error("TOKEN_NOT_RESOLVED", rerr, "Give the token's 0x contract address, or send without explicit fees."))
-            units = _to_units(v["amount"], decimals or 18)
+            units = _to_units(v["amount"], 18 if decimals is None else decimals)
             payload = {"to": addr, "value": "0x0", "data": erc20_transfer_calldata(v["to"], units)}
     except (InvalidOperation, ValueError) as exc:
         return _bad(f"amount is not valid for this token: {exc}")
     payload.update(_fee_fields(v))
-    cmd = ["wallet", "send-transaction", "--chain-id", str(v["chain_id"]), "--payload", json.dumps(payload), "--intent", intent]
+    cmd = ["wallet", "send-transaction", "--chain-id", str(v["chain_id"]), f"--payload={json.dumps(payload)}", f"--intent={intent}"]
     summary = _run_job(cmd, intent, timeout)
     summary["route"] = "send-transaction"
     summary["fees"] = {k: payload[k] for k in ("maxFeePerGas", "maxPriorityFeePerGas", "options") if k in payload}
@@ -310,11 +305,11 @@ def mm_sign(args: Dict[str, Any], **kwargs: Any) -> str:
         return _bad(err)
     intent = describe("mm_sign", args) or ""
     if v["kind"] == "message":
-        cmd = ["wallet", "sign-message", "--message", v["message"], "--chain-id", str(v["chain_id"])]
+        cmd = ["wallet", "sign-message", f"--message={v['message']}", "--chain-id", str(v["chain_id"])]
     else:
-        cmd = ["wallet", "sign-typed-data", "--chain-id", str(v["chain_id"]), "--payload", json.dumps(v["payload"])]
+        cmd = ["wallet", "sign-typed-data", "--chain-id", str(v["chain_id"]), f"--payload={json.dumps(v['payload'])}"]
         if v["intent"]:
-            cmd += ["--intent", v["intent"]]
+            cmd += [f"--intent={jobs.clean_text(v['intent'], limit=200)}"]
     summary = _run_job(cmd, intent, tools._timeout())
     if summary.get("signature"):
         summary["note"] = ("Signature produced by MetaMask for the active wallet; it is authoritative, no need to verify "

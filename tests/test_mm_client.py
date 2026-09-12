@@ -83,3 +83,18 @@ def test_parse_ndjson_notice_then_envelope(mm):
 def test_parse_pretty_printed_envelope_with_leading_noise(mm):
     out = mm.parse_output('(node:1) Warning\n{\n  "ok": true,\n  "data": {\n    "a": [1, 2]\n  }\n}\n')
     assert out == {"ok": True, "data": {"a": [1, 2]}}
+
+
+def test_install_pins_the_major(mm, monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(mm, "find_npm", lambda: "/fake/npm")
+    monkeypatch.setattr(mm, "version", lambda: "6.2.0")
+    monkeypatch.setattr(mm, "find_mm", lambda: "/fake/mm")
+    monkeypatch.setattr(mm.subprocess, "run", fake_run)
+    out = mm.install_cli()
+    assert out["ok"] and seen["cmd"][-1] == "@metamask/agent-wallet@6" and "latest" not in " ".join(seen["cmd"])

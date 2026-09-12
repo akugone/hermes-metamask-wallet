@@ -145,16 +145,18 @@ def _login_complete(token: str) -> Dict[str, Any]:
         return mm.error("INVALID_TOKEN", "That does not look like a MetaMask CLI token.",
                         "The token shown on the sign-in page has the form cliToken:cliRefreshToken. "
                         "Ask the user to copy it again, whole.")
-    # The CLI documents MM_CLI_TOKEN; keep the secret out of argv.
+    # The CLI documents MM_CLI_TOKEN for `mm login`: the secret goes through the environment only, never argv
+    # (argv is visible to every process on the machine).
     result = mm.run(["login"], timeout=_timeout(), env_extra={"MM_CLI_TOKEN": token})
-    if not result.get("ok"):
-        result = mm.run(["login", "--token", token], timeout=_timeout())
     if result.get("ok"):
         status = mm.data(mm.run(["auth", "status"], timeout=_timeout()), {}) or {}
         return {"ok": True, "data": {"authenticated": bool(status.get("authenticated")),
                                      "next_step": "Signed in. Now call mm_status, then mm_setup action='init' "
                                                   "after asking the user for wallet_mode and trading_mode."}}
-    return result
+    err = result.get("error") or {}
+    return mm.error(str(err.get("code") or "LOGIN_FAILED"),
+                    str(err.get("message") or "MetaMask did not accept the token."),
+                    "Ask the user to open the sign-in link again (mm_setup action='login_start') and paste a fresh token.")
 
 
 def mm_setup(args: Dict[str, Any], **kwargs: Any) -> str:

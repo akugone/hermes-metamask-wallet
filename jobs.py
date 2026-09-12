@@ -16,6 +16,22 @@ TERMINAL_STATUSES = {"CONFIRMED", "COMPLETED", "SUCCESS", "SUCCEEDED", "BROADCAS
 PENDING_STATUSES = {"AWAITING_MFA", "PENDING", "SUBMITTED", "PROCESSING", "QUEUED", "SIGNING"}
 
 
+_CONTROL_RE = None
+
+
+def clean_text(value: Any, limit: int = 300) -> str:
+    """Text destined for an approval prompt or a chat notice: control characters and terminal escape
+    sequences removed, whitespace collapsed, length capped. Strings from MetaMask, token contracts or the
+    model never reach the human unfiltered."""
+    global _CONTROL_RE
+    if _CONTROL_RE is None:
+        import re
+        _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
+    text = _CONTROL_RE.sub(" ", str(value if value is not None else ""))
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def chain_label(chain_id: Any) -> str:
     try:
         cid = int(chain_id)
@@ -142,12 +158,12 @@ def summarize(envelope: Dict[str, Any], intent: str = "") -> Dict[str, Any]:
         out["explorer_url"] = url
     reason = find_first(envelope, ("failureReason", "failure_reason", "failureDescription"))
     if reason:
-        out["failure_reason"] = reason
+        out["failure_reason"] = clean_text(reason)
     if not envelope.get("ok"):
         out["error"] = envelope.get("error")
     n = mfa_notice(envelope)
     if n and n.get("message"):
-        out["mfa_message"] = str(n["message"])[:300]
+        out["mfa_message"] = clean_text(n["message"])
         if n.get("expiresAt"):
             out["mfa_expires_at"] = n["expiresAt"]
     if st == "AWAITING_MFA" or (n is not None and not is_terminal(st) and not tx_hash(envelope) and not signature(envelope)):

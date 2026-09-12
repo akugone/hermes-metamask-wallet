@@ -35,7 +35,7 @@ def describe_intent(tool_name: str, args: Dict[str, Any]) -> Optional[str]:
     if tool_name == "mm_setup":
         action = args.get("action")
         if action == "install_cli":
-            return "Install the MetaMask Agent Wallet CLI (npm install -g @metamask/agent-wallet)"
+            return f"Install the MetaMask Agent Wallet CLI (npm install -g {mm.MM_INSTALL_SPEC})"
         if action in ("init", "create_wallet") and args.get("trading_mode") == "beast":
             return "Set up the MetaMask wallet in BEAST mode (no allowlists, no outflow limit — threat scan only)"
         if action == "init" and args.get("wallet_mode") == "byok":

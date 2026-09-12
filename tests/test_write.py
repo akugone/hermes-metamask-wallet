@@ -132,10 +132,10 @@ def test_sign_message_and_typed_data(plugin, monkeypatch):
     tw = _mod("tools_write")
     calls = _fake_run(monkeypatch, [(lambda a: True, {"ok": True, "data": {"status": "CONFIRMED", "signature": "0xsig"}})])
     out = json.loads(tw.mm_sign({"kind": "message", "message": "hi", "chain_id": 1}))
-    assert out["signature"] == "0xsig" and calls[0] == ["wallet", "sign-message", "--message", "hi", "--chain-id", "1"]
+    assert out["signature"] == "0xsig" and calls[0] == ["wallet", "sign-message", "--message=hi", "--chain-id", "1"]
     td = {"types": {}, "primaryType": "Permit", "domain": {"chainId": 1}, "message": {}}
     tw.mm_sign({"kind": "typed_data", "payload": json.dumps(td), "chain_id": 1, "intent": "Approve"})
-    assert calls[-1][:3] == ["wallet", "sign-typed-data", "--chain-id"] and "--intent" in calls[-1]
+    assert calls[-1][:3] == ["wallet", "sign-typed-data", "--chain-id"] and any(a.startswith("--intent=") for a in calls[-1])
 
 
 def test_requests_list_and_watch(plugin, monkeypatch):
@@ -212,10 +212,10 @@ def test_transfer_with_fees_routes_native_through_send_transaction(plugin, monke
     out = json.loads(tw.mm_transfer({"to": ADDR, "amount": "0.001", "token": "ETH", "chain_id": 11155111, "max_fee_gwei": 5, "priority_fee_gwei": 1.5}))
     assert out["tx_hash"] == HASH and out["route"] == "send-transaction"
     cmd = calls[0]
-    payload = json.loads(cmd[cmd.index("--payload") + 1])
+    payload = json.loads(next(a for a in cmd if a.startswith("--payload="))[len("--payload="):])
     assert payload["to"] == ADDR and int(payload["value"], 16) == 10**15
     assert payload["maxFeePerGas"] == hex(5 * 10**9) and payload["maxPriorityFeePerGas"] == hex(15 * 10**8)
-    assert cmd[cmd.index("--intent") + 1].startswith("Send 0.001 ETH to")
+    assert next(a for a in cmd if a.startswith("--intent=")).startswith("--intent=Send 0.001 ETH to")
 
 
 def test_transfer_with_fees_builds_erc20_calldata(plugin, monkeypatch):
@@ -228,7 +228,7 @@ def test_transfer_with_fees_builds_erc20_calldata(plugin, monkeypatch):
     out = json.loads(tw.mm_transfer({"to": ADDR, "amount": "2.5", "token": "usdc", "chain_id": 11155111, "gas_speed": "high"}))
     assert out["tx_hash"] == HASH and out["fees"] == {"options": {"speed": "high"}}
     cmd = next(c for c in calls if c[:2] == ["wallet", "send-transaction"])
-    payload = json.loads(cmd[cmd.index("--payload") + 1])
+    payload = json.loads(next(a for a in cmd if a.startswith("--payload="))[len("--payload="):])
     assert payload["to"] == usdc and payload["value"] == "0x0"
     assert payload["data"] == "0xa9059cbb" + ADDR[2:].lower().rjust(64, "0") + format(2_500_000, "x").rjust(64, "0")
 
@@ -239,3 +239,28 @@ def test_transfer_gas_validation(plugin):
     assert hook(tool_name="mm_transfer", args={"to": ADDR, "amount": "1", "token": "ETH", "max_fee_gwei": 1, "priority_fee_gwei": 2})["action"] == "block"
     ok = hook(tool_name="mm_transfer", args={"to": ADDR, "amount": "1", "token": "ETH", "chain_id": 1, "max_fee_gwei": 5})
     assert ok["action"] == "approve" and "max fee 5 gwei" in ok["message"]
+
+
+
+def test_prompt_text_is_sanitised(plugin):
+    hook = plugin._pre_tool_call
+    esc = chr(27)
+    m = hook(tool_name="mm_sign", args={"kind": "message", "message": f"pay{esc}[31m me\u200b now\nplease", "chain_id": 1})
+    assert esc not in m["message"] and "\u200b" not in m["message"] and "\n" not in m["message"]
+    assert 'Sign the message "pay [31m me now please"' in m["message"]
+    td = {"types": {}, "primaryType": "Permit", "domain": {"name": f"Evil{esc}[0m", "chainId": 1}, "message": {}}
+    t = hook(tool_name="mm_sign", args={"kind": "typed_data", "payload": json.dumps(td), "chain_id": 1})
+    assert esc not in t["message"]
+
+
+def test_transfer_erc20_with_zero_decimals(plugin, monkeypatch):
+    tw = _mod("tools_write")
+    tok = "0x" + "12" * 20
+    calls = _fake_run(monkeypatch, [
+        (lambda a: a[:3] == ["token", "list", "search"], {"ok": True, "data": [{"symbol": "NFTX", "address": tok, "decimals": 0}]}),
+        (lambda a: a[:2] == ["wallet", "send-transaction"], {"ok": True, "data": {"status": "BROADCASTED", "hash": HASH}}),
+    ])
+    tw.mm_transfer({"to": ADDR, "amount": "3", "token": "NFTX", "chain_id": 1, "gas_speed": "high"})
+    cmd = next(c for c in calls if c[:2] == ["wallet", "send-transaction"])
+    payload = json.loads(next(a for a in cmd if a.startswith("--payload="))[len("--payload="):])
+    assert payload["data"].endswith(format(3, "x").rjust(64, "0"))  # 3 units, not 3e18

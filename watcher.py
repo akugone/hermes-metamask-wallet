@@ -88,8 +88,8 @@ def _run(polling_id: str, intent: str, session_key: Optional[str]) -> None:
 
 
 def format_notice(polling_id: str, outcome: Dict[str, Any]) -> str:
-    what = outcome.get("intent") or f"request {polling_id}"
-    st = outcome.get("status") or ("done" if outcome.get("ok") else "failed")
+    what = jobs.clean_text(outcome.get("intent"), limit=160) or f"request {polling_id}"
+    st = jobs.clean_text(outcome.get("status"), limit=40) or ("done" if outcome.get("ok") else "failed")
     parts = [f"MetaMask Agent Wallet update — {what}: {st}."]
     if outcome.get("tx_hash"):
         parts.append(f"Tx {outcome['tx_hash']}")
@@ -98,10 +98,10 @@ def format_notice(polling_id: str, outcome: Dict[str, Any]) -> str:
     if outcome.get("signature"):
         parts.append("Signature ready (ask mm_requests to see it).")
     if outcome.get("failure_reason"):
-        parts.append(f"Reason: {outcome['failure_reason']}")
+        parts.append(f"Reason: {jobs.clean_text(outcome['failure_reason'])}")
     err = outcome.get("error")
     if isinstance(err, dict) and err.get("message"):
-        parts.append(f"Error {err.get('code', '')}: {err['message']}")
+        parts.append(f"Error {jobs.clean_text(err.get('code', ''), limit=40)}: {jobs.clean_text(err['message'])}")
     parts.append("Tell the user in one sentence.")
     return " ".join(str(p) for p in parts)
 
