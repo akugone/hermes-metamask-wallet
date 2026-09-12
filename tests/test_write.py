@@ -196,3 +196,46 @@ def test_jobs_prefer_envelope_status_over_mfa_notice(plugin):
     waiting = {"ok": True, "data": {"pollingId": "p-2"}, "notices": [{"kind": "AWAITING_MFA", "pollingId": "p-2", "message": "Approve"}]}
     assert jobs.status(waiting) == "AWAITING_MFA" and jobs.is_pending(waiting)
     assert jobs.summarize(waiting)["user_action"]
+
+
+def test_transfer_fee_too_low_is_reported_not_sent(plugin, monkeypatch):
+    tw = _mod("tools_write")
+    calls = _fake_run(monkeypatch, [(lambda a: a[:1] == ["transfer"], {"ok": False, "error": {"code": "TX_FAILED", "message": "rpc_fee_too_low"}})])
+    out = json.loads(tw.mm_transfer({"to": ADDR, "amount": "0.001", "token": "ETH", "chain_id": 11155111}))
+    assert out["ok"] is False and out["sent"] is False and "NOT SENT" in out["hint"] and "max_fee_gwei" in out["hint"]
+    assert len(calls) == 1  # no silent retry
+
+
+def test_transfer_with_fees_routes_native_through_send_transaction(plugin, monkeypatch):
+    tw = _mod("tools_write")
+    calls = _fake_run(monkeypatch, [(lambda a: a[:2] == ["wallet", "send-transaction"], {"ok": True, "data": {"status": "BROADCASTED", "hash": HASH}})])
+    out = json.loads(tw.mm_transfer({"to": ADDR, "amount": "0.001", "token": "ETH", "chain_id": 11155111, "max_fee_gwei": 5, "priority_fee_gwei": 1.5}))
+    assert out["tx_hash"] == HASH and out["route"] == "send-transaction"
+    cmd = calls[0]
+    payload = json.loads(cmd[cmd.index("--payload") + 1])
+    assert payload["to"] == ADDR and int(payload["value"], 16) == 10**15
+    assert payload["maxFeePerGas"] == hex(5 * 10**9) and payload["maxPriorityFeePerGas"] == hex(15 * 10**8)
+    assert cmd[cmd.index("--intent") + 1].startswith("Send 0.001 ETH to")
+
+
+def test_transfer_with_fees_builds_erc20_calldata(plugin, monkeypatch):
+    tw = _mod("tools_write")
+    usdc = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+    calls = _fake_run(monkeypatch, [
+        (lambda a: a[:3] == ["token", "list", "search"], {"ok": True, "data": [{"symbol": "USDC", "address": usdc, "decimals": 6}]}),
+        (lambda a: a[:2] == ["wallet", "send-transaction"], {"ok": True, "data": {"status": "BROADCASTED", "hash": HASH}}),
+    ])
+    out = json.loads(tw.mm_transfer({"to": ADDR, "amount": "2.5", "token": "usdc", "chain_id": 11155111, "gas_speed": "high"}))
+    assert out["tx_hash"] == HASH and out["fees"] == {"options": {"speed": "high"}}
+    cmd = next(c for c in calls if c[:2] == ["wallet", "send-transaction"])
+    payload = json.loads(cmd[cmd.index("--payload") + 1])
+    assert payload["to"] == usdc and payload["value"] == "0x0"
+    assert payload["data"] == "0xa9059cbb" + ADDR[2:].lower().rjust(64, "0") + format(2_500_000, "x").rjust(64, "0")
+
+
+def test_transfer_gas_validation(plugin):
+    hook = plugin._pre_tool_call
+    assert hook(tool_name="mm_transfer", args={"to": ADDR, "amount": "1", "token": "ETH", "gas_speed": "turbo"})["action"] == "block"
+    assert hook(tool_name="mm_transfer", args={"to": ADDR, "amount": "1", "token": "ETH", "max_fee_gwei": 1, "priority_fee_gwei": 2})["action"] == "block"
+    ok = hook(tool_name="mm_transfer", args={"to": ADDR, "amount": "1", "token": "ETH", "chain_id": 1, "max_fee_gwei": 5})
+    assert ok["action"] == "approve" and "max fee 5 gwei" in ok["message"]

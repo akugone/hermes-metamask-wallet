@@ -35,7 +35,9 @@ Before any write:
 - For swaps, show the `mm_swap_quote` first (output, min output, fees, price impact) and execute by
   `quote_id`.
 - For signatures, explain what the message or typed data authorises. A permit can spend tokens.
-- Never call a write tool twice for the same request. If it was blocked, tell the user why and stop.
+- Never repeat a write on your own. If the result has no `tx_hash` and no `polling_id` and says NOT SENT
+  (e.g. `rpc_fee_too_low`), nothing happened: tell the user, and only with their explicit go call it once more,
+  with the fix the hint suggests (explicit fees). If Hermes blocked it, stop and explain.
 
 ## After a write
 - `status: CONFIRMED` with `tx_hash` — report the hash and the explorer link.
