@@ -25,9 +25,10 @@ around a missing option. Every wallet capability you need is an `mm_*` tool with
 is missing, say so and stop. Direct `mm` write calls are escalated to the user as a bypass attempt.
 
 ## Balances
-`mm_balance` answers for the mainnets; when they are empty it also probes the testnets and returns them under
-`testnet` with a `hint`. Trust it: do not re-verify balances with curl, public RPCs or the terminal tool.
-Test funds have no fiat value — say so instead of "$0".
+`mm_balance` answers for the mainnets (MetaMask's indexer, which may lag a few blocks after a transaction);
+when they are empty it also probes the testnets over RPC and returns them under `testnet` with a `hint`. That is
+the wallet's own view and is enough to answer the user — re-checking over public RPCs or the terminal tool is
+optional, not expected. Test funds have no fiat value — say so instead of "$0".
 
 ## Reads are free, writes are gated twice
 `mm_balance`, `mm_market`, `mm_history`, `mm_swap_quote`, `mm_requests` never move funds.

@@ -311,9 +311,10 @@ def mm_balance(args: Dict[str, Any], **kwargs: Any) -> str:
                               "Arbitrum Sepolia, Polygon Amoy — natives plus Circle USDC). Report them clearly as test "
                               "funds with no fiat value; do not call the wallet empty.")
         else:
-            result["hint"] = ("No holdings on the mainnets mm tracks, and none on the testnets it reads over RPC "
-                              "(Sepolia, Arbitrum Sepolia, Polygon Amoy). This is authoritative: no need to re-check "
-                              "with other tools. Fund the address to get started.")
+            result["hint"] = ("No holdings on the mainnets MetaMask indexes, and none on the testnets it reads over RPC "
+                              "(Sepolia, Arbitrum Sepolia, Polygon Amoy). This is MetaMask's own view of the wallet and is "
+                              "enough to answer the user; the indexer may lag a few blocks right after a transaction. "
+                              "Fund the address to get started.")
     return _dump(result)
 
 

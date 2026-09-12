@@ -64,8 +64,9 @@ MM_BALANCE = {
     "description": (
         "Show the MetaMask Agent Wallet balances (native + tokens, fiat values) on the mainnets mm tracks. "
         "If the mainnets are empty, testnets (Sepolia, Arbitrum Sepolia, Polygon Amoy, incl. Circle USDC) are "
-        "probed automatically and returned under `testnet`. The result is authoritative: no need to double-check "
-        "with RPC calls or shell commands. Read-only."
+        "probed automatically and returned under `testnet`. Mainnet figures come from MetaMask's indexer (may lag a few "
+        "blocks after a transaction), testnet figures from RPC. Enough to answer the user without extra RPC or shell "
+        "checks. Read-only."
     ),
     "parameters": {
         "type": "object",
