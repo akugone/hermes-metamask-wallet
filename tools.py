@@ -234,31 +234,87 @@ def mm_setup(args: Dict[str, Any], **kwargs: Any) -> str:
 # Read-only tools
 # ---------------------------------------------------------------------------
 
-def mm_balance(args: Dict[str, Any], **kwargs: Any) -> str:
+# Circle USDC on the testnets mm reads over RPC (--testnet). Used when probing testnets automatically.
+TESTNET_USDC = {
+    11155111: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",  # Sepolia
+    421614: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",    # Arbitrum Sepolia
+    80002: "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582",     # Polygon Amoy
+}
+
+
+def _balance_is_empty(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return True
+    chains = data.get("chains") or []
+    for chain in chains:
+        for tok in (chain.get("tokens") or []) if isinstance(chain, dict) else []:
+            try:
+                if float(str(tok.get("amount", "0")).replace(",", "")) > 0:
+                    return False
+            except ValueError:
+                return False
+    return True
+
+
+def _balance_cmd(args: Dict[str, Any], testnet: bool) -> Optional[list]:
     cmd = ["wallet", "balance"]
-    cmd += _chain_flag(args)
+    if not testnet:
+        cmd += _chain_flag(args)
     token = (args.get("token") or "").strip()
     if token:
         if not (ADDRESS_RE.match(token) or SYMBOL_RE.match(token) or ":" in token):
-            return _bad("token must be a symbol, a 0x contract address or a CAIP-19 id.")
+            return None
         cmd += ["--token", token]
     currency = (args.get("currency") or _setting("default_currency", "usd") or "usd").strip().lower()
     if not re.match(r"^[a-z]{3,5}$", currency):
-        return _bad("currency must be a fiat code like usd or eur.")
+        return None
     cmd += ["--currency", currency]
     address = (args.get("address") or "").strip()
     if address:
-        if not ADDRESS_RE.match(address):
-            return _bad("address must be a 0x-prefixed 40-hex EVM address.")
         cmd += ["--address", address]
-    if args.get("testnet"):
+    if testnet:
         cmd.append("--testnet")
-        contracts = [c.strip() for c in (args.get("token_contracts") or []) if isinstance(c, str)]
-        if contracts:
-            if not all(ADDRESS_RE.match(c) for c in contracts):
-                return _bad("token_contracts must be 0x ERC-20 contract addresses.")
-            cmd += ["--token-contracts", ",".join(contracts)]
-    return _dump(mm.run(cmd, timeout=_timeout()))
+        contracts = [c.strip() for c in (args.get("token_contracts") or []) if isinstance(c, str)] or list(TESTNET_USDC.values())
+        cmd += ["--token-contracts", ",".join(contracts)]
+    return cmd
+
+
+def mm_balance(args: Dict[str, Any], **kwargs: Any) -> str:
+    """Balances. Mainnets by default; when they are empty (and the caller did not pick chains), the
+    testnets mm can read over RPC are probed too, USDC included, so a test wallet is never reported as
+    empty by mistake."""
+    token = (args.get("token") or "").strip()
+    if token and not (ADDRESS_RE.match(token) or SYMBOL_RE.match(token) or ":" in token):
+        return _bad("token must be a symbol, a 0x contract address or a CAIP-19 id.")
+    currency = (args.get("currency") or _setting("default_currency", "usd") or "usd").strip().lower()
+    if not re.match(r"^[a-z]{3,5}$", currency):
+        return _bad("currency must be a fiat code like usd or eur.")
+    address = (args.get("address") or "").strip()
+    if address and not ADDRESS_RE.match(address):
+        return _bad("address must be a 0x-prefixed 40-hex EVM address.")
+    contracts = [c.strip() for c in (args.get("token_contracts") or []) if isinstance(c, str)]
+    if contracts and not all(ADDRESS_RE.match(c) for c in contracts):
+        return _bad("token_contracts must be 0x ERC-20 contract addresses.")
+
+    if args.get("testnet"):
+        return _dump(mm.run(_balance_cmd(args, testnet=True), timeout=_timeout()))
+
+    result = mm.run(_balance_cmd(args, testnet=False), timeout=_timeout())
+    if not result.get("ok"):
+        return _dump(result)
+    result["scope"] = "mainnets"
+    if _balance_is_empty(result.get("data")) and not args.get("chain_ids"):
+        probe = mm.run(_balance_cmd(args, testnet=True), timeout=_timeout())
+        if probe.get("ok") and not _balance_is_empty(probe.get("data")):
+            result["testnet"] = probe.get("data")
+            result["hint"] = ("No mainnet holdings, but this wallet holds TESTNET funds (see `testnet`: Sepolia, "
+                              "Arbitrum Sepolia, Polygon Amoy — natives plus Circle USDC). Report them clearly as test "
+                              "funds with no fiat value; do not call the wallet empty.")
+        else:
+            result["hint"] = ("No holdings on the mainnets mm tracks, and none on the testnets it reads over RPC "
+                              "(Sepolia, Arbitrum Sepolia, Polygon Amoy). This is authoritative: no need to re-check "
+                              "with other tools. Fund the address to get started.")
+    return _dump(result)
 
 
 def _resolve_asset_id(symbol: str, chain_id: int) -> Optional[str]:

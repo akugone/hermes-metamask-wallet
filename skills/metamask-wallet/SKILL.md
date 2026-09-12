@@ -19,6 +19,11 @@ Its `next_step` tells you what is missing (CLI, sign-in, wallet). Follow it lite
    - Never ask for a seed phrase in the chat. BYOK reads `MM_MNEMONIC` from the environment only.
 5. `create_wallet` if `init` says no wallet exists yet.
 
+## Balances
+`mm_balance` answers for the mainnets; when they are empty it also probes the testnets and returns them under
+`testnet` with a `hint`. Trust it: do not re-verify balances with curl, public RPCs or the terminal tool.
+Test funds have no fiat value — say so instead of "$0".
+
 ## Reads are free, writes are gated twice
 `mm_balance`, `mm_market`, `mm_history`, `mm_swap_quote`, `mm_requests` never move funds.
 `mm_transfer`, `mm_swap_execute`, `mm_sign` each go through the Hermes approval prompt (the user

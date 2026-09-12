@@ -149,3 +149,27 @@ def test_swap_quote_is_compare_only(tools, monkeypatch):
     assert "--all-quotes" in cmd and "--yes" not in cmd and "execute" not in cmd
     assert "nothing was executed" in out["note"]
     assert json.loads(tools.mm_swap_quote({"from_token": "ETH", "to_token": "USDC", "amount": "-1"}))["error"]["code"] == "INVALID_INPUT"
+
+
+def test_balance_probes_testnets_when_mainnets_empty(tools, monkeypatch):
+    calls = _install_fake_run(tools, monkeypatch, [
+        (lambda a: "--testnet" in a, {"ok": True, "data": {"chains": [{"name": "Sepolia", "tokens": [{"token": "ETH", "amount": "0.05"}]}]}}),
+        (lambda a: a[:2] == ["wallet", "balance"], {"ok": True, "data": {"currency": "usd", "totalValue": "0", "chains": []}}),
+    ])
+    out = json.loads(tools.mm_balance({}))
+    assert out["ok"] and out["scope"] == "mainnets"
+    assert out["testnet"]["chains"][0]["name"] == "Sepolia" and "TESTNET" in out["hint"]
+    probe = next(c for c in calls if "--testnet" in c[0])[0]
+    assert "--token-contracts" in probe and "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" in probe[probe.index("--token-contracts") + 1]
+
+
+def test_balance_no_probe_when_chains_given_or_funds_present(tools, monkeypatch):
+    calls = _install_fake_run(tools, monkeypatch, [
+        (lambda a: a[:2] == ["wallet", "balance"], {"ok": True, "data": {"chains": [{"name": "Base", "tokens": [{"token": "ETH", "amount": "1.0"}]}]}}),
+    ])
+    out = json.loads(tools.mm_balance({}))
+    assert "testnet" not in out and "hint" not in out and len(calls) == 1
+    calls.clear()
+    _install_fake_run(tools, monkeypatch, [(lambda a: True, {"ok": True, "data": {"chains": []}})])
+    out = json.loads(tools.mm_balance({"chain_ids": [8453]}))
+    assert "testnet" not in out and "hint" not in out

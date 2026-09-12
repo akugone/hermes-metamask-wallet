@@ -62,8 +62,10 @@ MM_SETUP = {
 MM_BALANCE = {
     "name": "mm_balance",
     "description": (
-        "Show the active MetaMask Agent Wallet address and its native + token balances, with fiat "
-        "values. Filter by chain or token if the user asks for one. Read-only."
+        "Show the MetaMask Agent Wallet balances (native + tokens, fiat values) on the mainnets mm tracks. "
+        "If the mainnets are empty, testnets (Sepolia, Arbitrum Sepolia, Polygon Amoy, incl. Circle USDC) are "
+        "probed automatically and returned under `testnet`. The result is authoritative: no need to double-check "
+        "with RPC calls or shell commands. Read-only."
     ),
     "parameters": {
         "type": "object",
