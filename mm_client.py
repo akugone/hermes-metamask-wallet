@@ -103,25 +103,56 @@ def error(code: str, message: str, hint: str = "", **extra: Any) -> Dict[str, An
     return {"ok": False, "error": err}
 
 
+def _json_objects(text: str) -> List[Any]:
+    """Every JSON value found in *text*: one per line (NDJSON) or concatenated / pretty-printed objects."""
+    found: List[Any] = []
+    decoder = json.JSONDecoder()
+    idx = 0
+    while True:
+        idx = text.find("{", idx)
+        if idx < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            idx += 1
+            continue
+        found.append(obj)
+        idx = end
+    return found
+
+
 def parse_output(stdout: str, stderr: str = "", returncode: int = 0) -> Dict[str, Any]:
-    """Turn raw CLI output into the ``{"ok": ...}`` envelope, tolerating stray non-JSON lines."""
-    text = (stdout or "").strip()
-    # mm prints error envelopes on stderr when it exits non-zero: parse whichever stream has JSON.
-    for text in (t for t in (text, (stderr or "").strip()) if t):
-        for candidate in (text, text[text.find("{"):] if "{" in text else ""):
-            if not candidate:
-                continue
-            try:
-                parsed = json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(parsed, dict) and "ok" in parsed:
-                return parsed
-            return {"ok": True, "data": parsed}
+    """Turn raw CLI output into the ``{"ok": ...}`` envelope.
+
+    In ``--json`` mode ``mm`` may write NDJSON ``{"_notice": {...}}`` lines (MFA pauses, per-step
+    outcomes) before the final envelope; they are collected under ``notices``. Stray non-JSON lines
+    are ignored; error envelopes on stderr are honoured."""
+    notices: List[Dict[str, Any]] = []
+    envelope: Optional[Dict[str, Any]] = None
+    bare: Optional[Any] = None
+    for stream in ((stdout or "").strip(), (stderr or "").strip()):
+        if not stream:
+            continue
+        for obj in _json_objects(stream):
+            if isinstance(obj, dict) and "_notice" in obj and isinstance(obj["_notice"], dict):
+                notices.append(obj["_notice"])
+            elif isinstance(obj, dict) and "ok" in obj and envelope is None:
+                envelope = obj
+            elif bare is None:
+                bare = obj
+        if envelope is not None:
+            break
+    if envelope is None and bare is not None:
+        envelope = {"ok": True, "data": bare}
+    if envelope is not None:
+        if notices:
+            envelope["notices"] = notices
+        return envelope
     text = (stdout or "").strip()
     raw = (text or (stderr or "").strip())[:MAX_RAW_OUTPUT]
     if returncode == 0 and text:
-        return {"ok": True, "data": {"raw": raw}}
+        return {"ok": True, "data": {"raw": raw}, **({"notices": notices} if notices else {})}
     return error(
         "MM_UNPARSEABLE_OUTPUT" if text else "MM_COMMAND_FAILED",
         f"mm exited with code {returncode} and no JSON payload.",

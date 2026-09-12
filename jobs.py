@@ -11,7 +11,7 @@ CHAIN_NAMES = {
     421614: "Arbitrum Sepolia", 80002: "Polygon Amoy",
 }
 
-TERMINAL_STATUSES = {"CONFIRMED", "COMPLETED", "SUCCESS", "SUCCEEDED", "FAILED", "REJECTED", "DENIED",
+TERMINAL_STATUSES = {"CONFIRMED", "COMPLETED", "SUCCESS", "SUCCEEDED", "BROADCASTED", "FAILED", "REJECTED", "DENIED",
                      "EXPIRED", "REVERTED", "CANCELLED", "CANCELED"}
 PENDING_STATUSES = {"AWAITING_MFA", "PENDING", "SUBMITTED", "PROCESSING", "QUEUED", "SIGNING"}
 
@@ -50,14 +50,38 @@ def find_first(obj: Any, keys: Iterable[str]) -> Optional[Any]:
     return None
 
 
+def notices(envelope: Dict[str, Any]) -> list:
+    items = envelope.get("notices")
+    return [n for n in items if isinstance(n, dict)] if isinstance(items, list) else []
+
+
+def mfa_notice(envelope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    for n in notices(envelope):
+        if str(n.get("kind", "")).upper() == "AWAITING_MFA":
+            return n
+    return None
+
+
 def polling_id(envelope: Dict[str, Any]) -> Optional[str]:
-    val = find_first(envelope, ("pollingId", "polling_id", "requestId"))
+    val = find_first(envelope.get("data", envelope), ("pollingId", "polling_id", "requestId"))
+    if val in (None, ""):
+        n = mfa_notice(envelope)
+        val = (n or {}).get("pollingId") or find_first(envelope, ("pollingId",))
     return str(val) if isinstance(val, (str, int)) and str(val).strip() else None
 
 
 def status(envelope: Dict[str, Any]) -> Optional[str]:
-    text = str(envelope)
-    if "AWAITING_MFA" in text:
+    """The job's own status when the envelope carries one (data.status wins over notices), else the
+    MFA marker when a notice or the raw text shows one."""
+    data = envelope.get("data")
+    if isinstance(data, dict):
+        own = data.get("status")
+        if isinstance(own, str) and own.strip():
+            return own.upper()
+        val = find_first(data, ("status",))
+        if isinstance(val, str) and val.strip():
+            return val.upper()
+    if mfa_notice(envelope) is not None or "AWAITING_MFA" in str(envelope):
         return "AWAITING_MFA"
     val = find_first(envelope, ("status",))
     return str(val).upper() if isinstance(val, str) else None
@@ -78,7 +102,8 @@ def is_terminal(st: Optional[str]) -> bool:
 
 
 def is_pending(envelope: Dict[str, Any]) -> bool:
-    """True when the job needs more time or a human (MFA) — i.e. worth watching in the background."""
+    """True when the job needs more time or a human (MFA) — i.e. worth watching in the background.
+    A BROADCASTED transaction with a hash is treated as done for the user's purposes."""
     if not envelope.get("ok"):
         code = str((envelope.get("error") or {}).get("code", "")).upper()
         return code in {"JOB_TIMEOUT", "RELAY_TIMEOUT"} and polling_id(envelope) is not None
@@ -120,7 +145,13 @@ def summarize(envelope: Dict[str, Any], intent: str = "") -> Dict[str, Any]:
         out["failure_reason"] = reason
     if not envelope.get("ok"):
         out["error"] = envelope.get("error")
-    if st == "AWAITING_MFA":
+    n = mfa_notice(envelope)
+    if n and n.get("message"):
+        out["mfa_message"] = str(n["message"])[:300]
+        if n.get("expiresAt"):
+            out["mfa_expires_at"] = n["expiresAt"]
+    if st == "AWAITING_MFA" or (n is not None and not is_terminal(st) and not tx_hash(envelope) and not signature(envelope)):
+        out["status"] = "AWAITING_MFA"
         out["user_action"] = ("MetaMask is asking the user to approve this request on MetaMask Mobile (push) "
                               "or via the email link. Tell them; do not retry. The plugin keeps watching and "
                               "will report the outcome.")

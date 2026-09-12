@@ -183,3 +183,16 @@ def test_watcher_dedupes_and_caps(plugin, monkeypatch):
         watcher.start(f"x{i}")
     assert watcher.start("x99") is False  # capacity 5
     watcher._active.clear()
+
+
+def test_jobs_prefer_envelope_status_over_mfa_notice(plugin):
+    jobs = _mod("jobs")
+    env = {"ok": True, "data": {"status": "BROADCASTED", "hash": HASH, "pollingId": "p-1"},
+           "notices": [{"kind": "AWAITING_MFA", "pollingId": "p-1", "message": "Approve by email"}]}
+    assert jobs.status(env) == "BROADCASTED"
+    assert not jobs.is_pending(env)
+    s = jobs.summarize(env, "Send 1 ETH")
+    assert s["tx_hash"] == HASH and s["mfa_message"] == "Approve by email" and "user_action" not in s
+    waiting = {"ok": True, "data": {"pollingId": "p-2"}, "notices": [{"kind": "AWAITING_MFA", "pollingId": "p-2", "message": "Approve"}]}
+    assert jobs.status(waiting) == "AWAITING_MFA" and jobs.is_pending(waiting)
+    assert jobs.summarize(waiting)["user_action"]

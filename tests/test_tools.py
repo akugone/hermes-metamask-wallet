@@ -68,7 +68,7 @@ def test_status_ready(tools, monkeypatch):
         (lambda a: a[:2] == ["init", "show"], {"ok": True, "data": {"walletMode": "server-wallet"}}),
     ])
     out = json.loads(tools.mm_status({}))["data"]
-    assert out["address"] == "0x" + "1" * 40 and out["trading_mode"] == {"mode": "guard"}
+    assert out["address"] == "0x" + "1" * 40 and out["trading_mode"] == "guard"
     assert out["next_step"].startswith("Ready")
 
 

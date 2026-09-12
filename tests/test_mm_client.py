@@ -70,3 +70,16 @@ def test_csv(mm):
     assert mm.csv([1, 8453]) == "1,8453"
     assert mm.csv("1,137") == "1,137"
     assert mm.csv([]) is None and mm.csv(None) is None
+
+
+def test_parse_ndjson_notice_then_envelope(mm):
+    out = mm.parse_output(
+        '{"_notice":{"kind":"AWAITING_MFA","source":"transfer","pollingId":"p-1","message":"Approve by email"}}\n'
+        '{"ok":true,"data":{"status":"BROADCASTED","hash":"0x' + "ab" * 32 + '","pollingId":"p-1"}}\n')
+    assert out["ok"] and out["data"]["status"] == "BROADCASTED"
+    assert out["notices"][0]["kind"] == "AWAITING_MFA" and out["notices"][0]["pollingId"] == "p-1"
+
+
+def test_parse_pretty_printed_envelope_with_leading_noise(mm):
+    out = mm.parse_output('(node:1) Warning\n{\n  "ok": true,\n  "data": {\n    "a": [1, 2]\n  }\n}\n')
+    assert out == {"ok": True, "data": {"a": [1, 2]}}

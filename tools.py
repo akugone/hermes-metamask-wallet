@@ -121,7 +121,8 @@ def mm_status(args: Dict[str, Any], **kwargs: Any) -> str:
             out["address"] = addr
         mode = mm.run(["wallet", "trading-mode", "get"], timeout=_timeout())
         if mode.get("ok"):
-            out["trading_mode"] = mode.get("data")
+            md = mode.get("data")
+            out["trading_mode"] = md.get("mode") if isinstance(md, dict) and md.get("mode") else md
         if args.get("include_policy"):
             policy = mm.run(["wallet", "policy", "get"], timeout=_timeout())
             out["policy"] = policy.get("data") if policy.get("ok") else policy.get("error")
@@ -252,6 +253,11 @@ def mm_balance(args: Dict[str, Any], **kwargs: Any) -> str:
         cmd += ["--address", address]
     if args.get("testnet"):
         cmd.append("--testnet")
+        contracts = [c.strip() for c in (args.get("token_contracts") or []) if isinstance(c, str)]
+        if contracts:
+            if not all(ADDRESS_RE.match(c) for c in contracts):
+                return _bad("token_contracts must be 0x ERC-20 contract addresses.")
+            cmd += ["--token-contracts", ",".join(contracts)]
     return _dump(mm.run(cmd, timeout=_timeout()))
 
 
