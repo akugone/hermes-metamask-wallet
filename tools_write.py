@@ -196,7 +196,12 @@ def mm_sign(args: Dict[str, Any], **kwargs: Any) -> str:
         cmd = ["wallet", "sign-typed-data", "--chain-id", str(v["chain_id"]), "--payload", json.dumps(v["payload"])]
         if v["intent"]:
             cmd += ["--intent", v["intent"]]
-    return _dump(_run_job(cmd, intent, tools._timeout()))
+    summary = _run_job(cmd, intent, tools._timeout())
+    if summary.get("signature"):
+        summary["note"] = ("Signature produced by MetaMask for the active wallet; it is authoritative, no need to verify "
+                           "it locally. Treat it as a credential: whoever holds it can present it wherever this exact "
+                           "message is accepted as a login.")
+    return _dump(summary)
 
 
 def mm_requests(args: Dict[str, Any], **kwargs: Any) -> str:
