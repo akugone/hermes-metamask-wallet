@@ -85,46 +85,48 @@ def _post_tool_call(tool_name: str = "", args: Optional[Dict[str, Any]] = None, 
 
 
 def _slash_wallet(raw_args: str = "") -> str:
-    """``/wallet`` — quick status summary without going through the model. ``/wallet requests`` lists pending."""
+    """``/wallet`` — quick status card without going through the model. ``/wallet requests`` lists pending.
+
+    Plain text on purpose: slash-command output is shown verbatim by the Desktop app and the TUI, and
+    Markdown markers would appear literally there."""
     sub = (raw_args or "").strip().lower()
     if sub.startswith("req"):
         payload = json.loads(tools_write.mm_requests({"action": "list"}))
         if not payload.get("ok"):
-            return f"⏳ **Pending requests unavailable** — {payload.get('error', {}).get('message', '?')}"
+            return f"⏳ Pending MetaMask requests unavailable — {payload.get('error', {}).get('message', '?')}"
         reqs = (payload.get("data") or {}).get("requests") or []
         if not reqs:
-            return "⏳ **No pending MetaMask requests.**"
-        lines = ["⏳ **Pending MetaMask requests**", ""]
+            return "⏳ No pending MetaMask requests."
+        lines = [f"⏳ MetaMask requests ({len(reqs)})", ""]
         for r in reqs[:10]:
             intent = r.get("intent") or r.get("kind") or "request"
-            st = r.get("status") or "?"
+            st = str(r.get("status") or "?")
             marker = "🟢" if st in jobs.TERMINAL_STATUSES else "🟠"
-            tx = f" · tx `{jobs.short_address(r['txHash'])}`" if r.get("txHash") else ""
-            lines.append(f"- {marker} **{intent}** — `{st}`{tx} · id `{str(r.get('pollingId', ''))[:8]}`")
+            tx = f"   tx {jobs.short_address(r['txHash'])}" if r.get("txHash") else ""
+            lines.append(f"{marker} {intent}")
+            lines.append(f"     {st}{tx}   id {str(r.get('pollingId', ''))[:8]}")
         return "\n".join(lines)
     try:
         payload = json.loads(tools.mm_status({}))
     except Exception as exc:  # pragma: no cover
-        return f"🦊 **MetaMask Agent Wallet** — status unavailable: {exc}"
+        return f"🦊 MetaMask Agent Wallet — status unavailable: {exc}"
     d = payload.get("data", {})
     if not d.get("installed"):
-        return "🦊 **MetaMask Agent Wallet** — 🔴 CLI not installed. Ask me to set it up."
-    ready = d.get("authenticated") and d.get("initialized")
-    light = "🟢" if ready else ("🟠" if d.get("authenticated") else "🔴")
-    lines = [f"🦊 **MetaMask Agent Wallet** {light} · mm {d.get('version') or '?'}", ""]
-    lines.append(f"- **Signed in:** {'yes' if d.get('authenticated') else 'no'}")
-    lines.append(f"- **Wallet:** {'ready' if d.get('initialized') else 'not initialised'}")
-    init = d.get("init") or {}
-    if isinstance(init, dict) and init.get("walletMode"):
-        lines.append(f"- **Mode:** {init['walletMode']}")
+        return "🦊 MetaMask Agent Wallet — 🔴 CLI not installed. Ask me to set it up."
+    ready = bool(d.get("authenticated") and d.get("initialized"))
+    light, word = ("🟢", "ready") if ready else (("🟠", "signed in, no wallet yet") if d.get("authenticated") else ("🔴", "not signed in"))
+    init = d.get("init") if isinstance(d.get("init"), dict) else {}
+    lines = [f"🦊 MetaMask Agent Wallet   {light} {word}", ""]
     if d.get("address"):
-        lines.append(f"- **Address:** `{d['address']}`")
-    if d.get("trading_mode"):
-        lines.append(f"- **Trading mode:** {str(d['trading_mode']).upper()}")
+        lines.append(f"Address:   {d['address']}")
+    mode_bits = [b for b in (init.get("walletMode"), str(d["trading_mode"]).upper() if d.get("trading_mode") else None) if b]
+    if mode_bits:
+        lines.append(f"Mode:      {' · '.join(mode_bits)}")
+    lines.append(f"CLI:       mm {d.get('version') or '?'}")
     if watcher.active_ids():
-        lines.append(f"- **Watching:** {len(watcher.active_ids())} pending request(s) — `/wallet requests`")
+        lines.append(f"Watching:  {len(watcher.active_ids())} pending request(s) — /wallet requests")
     if d.get("next_step") and not ready:
-        lines += ["", f"_{d['next_step']}_"]
+        lines += ["", d["next_step"]]
     return "\n".join(lines)
 
 
