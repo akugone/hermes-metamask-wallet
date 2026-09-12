@@ -109,12 +109,94 @@ def _post_tool_call(tool_name: str = "", args: Optional[Dict[str, Any]] = None, 
         logger.debug("metamask-wallet: watcher for %s started=%s", pid, started)
 
 
+def _policy_state(status_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Parsed policy from an mm_status(include_policy=True) payload, or None when unavailable."""
+    raw = status_data.get("policy")
+    text = raw.get("policy") if isinstance(raw, dict) else raw
+    return tools_policy.parse_policy(text) if isinstance(text, str) else None
+
+
+def setup_card() -> str:
+    """``/wallet setup`` — where the user is in the onboarding, and the exact sentence to say next.
+
+    Read-only on purpose: slash commands bypass the model and therefore the approval gate, so this never
+    installs, signs in or changes anything. It tells the user what to *say* so the gated tools do it."""
+    try:
+        d = json.loads(tools.mm_status({"include_policy": True})).get("data", {})
+    except Exception as exc:  # pragma: no cover
+        return f"🦊 MetaMask Agent Wallet — setup status unavailable: {exc}"
+    installed = bool(d.get("installed"))
+    authed = installed and bool(d.get("authenticated"))
+    ready = authed and bool(d.get("initialized"))
+    address = str(d.get("address") or "")
+    init = d.get("init") if isinstance(d.get("init"), dict) else {}
+    mode = " · ".join(b for b in (init.get("walletMode"), str(d["trading_mode"]).upper() if d.get("trading_mode") else None) if b)
+    policy = _policy_state(d) if ready else None
+    limit = policy["evm"]["outflow_limits_usd"].get("rolling_24h") if policy else None
+    allow = policy["addresses"]["allowlist"] if policy else []
+    policy_ok = bool(policy) and (limit is None or float(limit) > 0) and bool(allow)
+
+    def mark(ok: bool) -> str:
+        return "✅" if ok else "⬜"
+
+    lines = ["🦊 MetaMask Agent Wallet — setup", ""]
+    lines.append(f"{mark(installed)} 1  mm CLI installed" + (f" ({d.get('version')})" if installed and d.get("version") else ""))
+    lines.append(f"{mark(authed)} 2  Signed in to MetaMask")
+    lines.append(f"{mark(ready)} 3  Wallet created" + (f" — {jobs.short_address(address)}" + (f" · {mode}" if mode else "") if ready and address else ""))
+    if ready and policy is None:
+        lines.append("⬜ 4  Policy — could not be read (BYOK wallets have no policy; server wallets: retry)")
+    elif ready:
+        if limit is None:
+            pol = "no 24h limit"
+        else:
+            pol = f"{tools_policy._num(limit)} USD / 24h"
+        pol += f", {len(allow)} allowlisted address{'es' if len(allow) != 1 else ''}"
+        tail = "" if policy_ok else " → every transfer asks for 2FA"
+        lines.append(f"{mark(policy_ok)} 4  Policy — {pol}{tail}")
+    else:
+        lines.append("⬜ 4  Policy — outflow limit + allowlist (after step 3)")
+    lines.append("")
+
+    lines.append("Next step")
+    if not installed:
+        lines += ['  Say: "Set up my MetaMask wallet"',
+                  "  → Hermes asks you to approve the npm install of the mm CLI, then gives you a sign-in link."]
+    elif not authed:
+        lines += ['  Say: "Sign me in to MetaMask"',
+                  "  → You get a link. Open it, sign in with Google, e-mail or MetaMask Mobile, then paste the",
+                  "    CLI token the page shows back into this chat. Approvals (2FA) will reach that account."]
+    elif not ready:
+        lines += ['  Say: "Create my MetaMask wallet"',
+                  "  → Hermes asks two questions: server-wallet (recommended — MetaMask keeps the keys, you never",
+                  "    see a seed phrase) or BYOK, and Guard mode (recommended). Then it creates the wallet."]
+    elif not policy_ok:
+        lines += ['  Say: "Raise my 24h outflow limit to 50 USD and allowlist 0x<recipient> on all chains"',
+                  "  → Hermes asks you to approve that exact change, MetaMask asks for ONE 2FA (e-mail / phone).",
+                  "    After that, transfers to allowlisted addresses under the limit run with no 2FA at all.",
+                  "    Pick a limit sized to what you really move per day. Fund the wallet at the address above."]
+    else:
+        lines += ["  Policy in place: transfers to allowlisted addresses under the limit need no 2FA.",
+                  '  Check it: "Show my MetaMask policy" · Add a recipient: "Allowlist 0x… on all chains"']
+    lines.append("")
+    lines.append("For a wallet that works while you sleep (cron)")
+    lines += ["  5  Run the recurring write once by hand and answer \"always\" at the Hermes prompt —",
+              '     e.g. "Send 20 USDC to 0x… on Base". "Always" covers that exact sentence only.',
+              '  6  Create the job: "Every Monday at 09:00, send 20 USDC to 0x… on Base and report the tx hash."',
+              "  7  Keep approvals.cron_mode = deny (default): anything not pre-approved is blocked, never waits."]
+    lines.append("")
+    lines.append("/wallet  status card   ·   /wallet requests  pending 2FA   ·   /wallet setup  this checklist")
+    return "\n".join(lines)
+
+
 def _slash_wallet(raw_args: str = "") -> str:
-    """``/wallet`` — quick status card without going through the model. ``/wallet requests`` lists pending.
+    """``/wallet`` — quick status card without going through the model. ``/wallet requests`` lists pending,
+    ``/wallet setup`` shows the onboarding checklist and the next sentence to say.
 
     Plain text on purpose: slash-command output is shown verbatim by the Desktop app and the TUI, and
     Markdown markers would appear literally there."""
     sub = (raw_args or "").strip().lower()
+    if sub.startswith("setup") or sub.startswith("onboard") or sub.startswith("start"):
+        return setup_card()
     if sub.startswith("req"):
         payload = json.loads(tools_write.mm_requests({"action": "list"}))
         if not payload.get("ok"):
@@ -169,7 +251,7 @@ def register(ctx) -> None:
                           check_fn=check_fn, emoji=_EMOJI.get(name, ""))
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("post_tool_call", _post_tool_call)
-    ctx.register_command("wallet", _slash_wallet, description="MetaMask Agent Wallet status", args_hint="[requests]")
+    ctx.register_command("wallet", _slash_wallet, description="MetaMask Agent Wallet status / setup checklist", args_hint="[requests|setup]")
     skill = Path(__file__).parent / "skills" / "metamask-wallet" / "SKILL.md"
     if skill.exists():
         try:

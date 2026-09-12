@@ -43,6 +43,7 @@ at the Hermes prompt, and the shell-bypass guard.
 | "Anything waiting for me?" | `mm_requests` — pending requests with their intent and status |
 | "Raise my daily limit to 100 $ and allowlist 0x…" | `mm_policy` — Hermes approval → one MetaMask 2FA → routine transactions to that address stop asking for 2FA |
 | `/wallet`, `/wallet requests` | Instant plain-text status card, no model turn |
+| `/wallet setup` | Onboarding checklist: what is done, what is next, and the exact sentence to say — no model turn |
 
 ## Install
 
@@ -61,6 +62,31 @@ Requirements: Node.js 22.18+ (Hermes ships its own), macOS or Linux, Hermes ≥ 
 > launch, so the `metamask` tools appear from the second Hermes start after enabling (or run
 > `hermes tools list` once). A one-time "Unknown toolsets: metamask" warning at startup is harmless.
 > After updating the plugin, restart Hermes and start a new conversation.
+
+## First run, step by step — what to say in the chat
+
+Everything after the two install commands happens in the conversation. `/wallet setup` prints this
+checklist against your real state at any time, with the next sentence to say.
+
+| # | You say | What happens | You do |
+|---|---|---|---|
+| 1 | *"Set up my MetaMask wallet"* | Hermes asks to approve `npm install -g @metamask/agent-wallet@6` | Accept the prompt |
+| 2 | *(Hermes continues)* | Hermes gives you a sign-in link | Open it, sign in with Google, e-mail or MetaMask Mobile, paste the CLI token it shows back into the chat |
+| 3 | *(Hermes continues)* | Hermes asks: **server-wallet** (recommended — MetaMask creates a new wallet and keeps the keys in its TEE; you never see a seed phrase) or BYOK; **Guard** mode (recommended) or Beast | Answer *"server wallet, guard"* |
+| 4 | *"What's my address?"* | `mm_status` shows the new `0x…` address | Send funds to it |
+| 5 | *"Show my MetaMask policy"* | `mm_policy get`: **0 USD limit, empty allowlist — every transfer will ask for 2FA** | Read the hint |
+| 6 | *"Raise my 24h outflow limit to 50 USD and allowlist 0x<recipient> on all chains"* | Hermes asks you to approve that exact change, then MetaMask asks for **one** 2FA | Accept, then approve the e-mail / push |
+| 7 | *"Send 20 USDC to 0x<recipient> on Base"* | First real transfer. In policy → no 2FA. Hermes still shows its own prompt | Answer **always** if this is the write you want to automate |
+| 8 | *"Every Monday at 09:00, send 20 USDC to 0x<recipient> on Base and report the tx hash"* | Hermes creates the cron job; the write is pre-approved on both sides | Nothing — check `/wallet requests` if anything ever waits |
+
+After step 6 you have a **wallet that works unattended for exactly what you allowlisted**: those recipients,
+under that daily limit. A new recipient, a bigger amount or a Blockaid flag still asks you — that is the point.
+Never answer step 3 with Beast, and never ask to remove the limit to "make cron work": raise it to what the
+job needs.
+
+No private key is imported in this flow. BYOK (your own seed phrase) is the advanced path: you export
+`MM_MNEMONIC` in Hermes' environment yourself, the plugin refuses a seed pasted in the chat, and BYOK wallets
+have neither policy nor MetaMask 2FA — only the Hermes prompt protects them.
 
 ## Tools
 

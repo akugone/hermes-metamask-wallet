@@ -9,6 +9,8 @@ The user never types shell commands. You call the `mm_*` tools; MetaMask holds t
 
 ## Always start with `mm_status`
 Its `next_step` tells you what is missing (CLI, sign-in, wallet). Follow it literally.
+If the user asks how to get started, what to do next, or seems lost, point them to `/wallet setup`: it prints
+the onboarding checklist against their real state with the exact sentence to say next, without a model turn.
 
 ## Setup, step by step (`mm_setup`)
 1. `install_cli` — Hermes will ask the user to approve the npm install.
