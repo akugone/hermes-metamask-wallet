@@ -59,6 +59,9 @@ def detect_mm_write(text: str) -> Optional[str]:
     """Return the matched write sub-command (normalised) when *text* invokes ``mm`` for a write, else None."""
     if not text or "mm" not in text.lower():
         return None
+    # `mm <write-cmd> --help` / `-h` only prints usage: a read, not a write.
+    if re.search(r"(?:^|\s)(?:--help|-h)(?:\s|$)", text) and "\n" not in text.strip():
+        return None
     m = _PATTERN.search(text) or _ARGV_RE.search(text)
     if not m:
         return None

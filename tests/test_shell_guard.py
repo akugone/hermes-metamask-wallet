@@ -21,7 +21,7 @@ def test_detects_direct_shell_writes(plugin):
 
 def test_ignores_reads_and_unrelated_commands(plugin):
     sg = _sg(plugin)
-    for cmd in ("mm wallet balance --json", "mm doctor", "mm allowances audit --chain-id 1", "mm swap quote --from ETH --to USDC --amount 1 --from-chain-id 1 --all-quotes",
+    for cmd in ("mm wallet balance --json", "mm doctor", "mm transfer --help", "mm wallet send-transaction -h", "mm allowances audit --chain-id 1", "mm swap quote --from ETH --to USDC --amount 1 --from-chain-id 1 --all-quotes",
                 "npm install -g @metamask/agent-wallet", "communicate --transfer", "ls -la ~/mm", "mmap transfer x", "python3 -m mmm transfer"):
         assert sg.detect_mm_write(cmd) is None, cmd
 
