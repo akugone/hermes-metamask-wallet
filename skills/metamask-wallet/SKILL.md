@@ -19,6 +19,11 @@ Its `next_step` tells you what is missing (CLI, sign-in, wallet). Follow it lite
    - Never ask for a seed phrase in the chat. BYOK reads `MM_MNEMONIC` from the environment only.
 5. `create_wallet` if `init` says no wallet exists yet.
 
+## Never call `mm` yourself
+Do not run `mm …` through the terminal tool, `execute_code`, or a script you write — not even to work
+around a missing option. Every wallet capability you need is an `mm_*` tool with the approval gate; if one
+is missing, say so and stop. Direct `mm` write calls are escalated to the user as a bypass attempt.
+
 ## Balances
 `mm_balance` answers for the mainnets; when they are empty it also probes the testnets and returns them under
 `testnet` with a `hint`. Trust it: do not re-verify balances with curl, public RPCs or the terminal tool.
@@ -29,7 +34,22 @@ Test funds have no fiat value — say so instead of "$0".
 `mm_transfer`, `mm_swap_execute`, `mm_sign` each go through the Hermes approval prompt (the user
 clicks) and then MetaMask's policy, which may add a 2FA on their phone or email.
 
-Before any write:
+## Known failure: `TX_FAILED` / `rpc_fee_too_low`, and sending with explicit fees
+`mm transfer` can fail at signing with `TX_FAILED` + `rpc_fee_too_low`. Neither it nor the lower-level
+commands expose a gas flag: fees come from the wallet's own estimator, so there is nothing to tune in the
+plugin and retrying the same call reproduces the same failure.
+
+To send with explicit fees, use the lower-level command (ask the user first — this path bypasses the
+Hermes approval prompt):
+`mm wallet send-transaction --chain-id <id> --payload '{"to":"0x…","value":"0x…","gas":"0x5208","maxFeePerGas":"0x…","maxPriorityFeePerGas":"0x…","chainId":"0x…"}' --intent "<sentence>" --wait`
+It still goes through MetaMask's policy + MFA: expect `_notice.kind = AWAITING_MFA` (the user must confirm
+on the email/device registered to their dashboard) and a possible `TX_DENIED` if nobody approves in time.
+
+After any failed write, verify nothing was broadcast (`mm wallet requests list` shows no new BROADCASTED
+request, nonce unchanged, balances unchanged), report the failure, and do not re-issue the same write
+without a fresh go-ahead from the user.
+
+## Before any write
 - Restate recipient, amount, token and chain in plain words and get a yes. Chains are ids
   (1 Ethereum, 8453 Base, 42161 Arbitrum, 10 Optimism, 137 Polygon). Ask if unsure.
 - For swaps, show the `mm_swap_quote` first (output, min output, fees, price impact) and execute by

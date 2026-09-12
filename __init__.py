@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 
 from . import jobs
 from . import mm_client as mm
-from . import schemas, tools, tools_write, watcher
+from . import schemas, shell_guard, tools, tools_write, watcher
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +45,29 @@ def describe_intent(tool_name: str, args: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _shell_guard_enabled() -> bool:
+    try:
+        return bool(_ctx_get("guard_shell_mm", True)) if _ctx_get else True
+    except Exception:
+        return True
+
+
+_ctx_get = None  # set in register(): ctx.get_config
+
+
 def _pre_tool_call(tool_name: str = "", args: Optional[Dict[str, Any]] = None, **kwargs: Any) -> Optional[dict]:
-    """Escalate sensitive mm_* calls to the Hermes approval gate (fails closed without a human)."""
-    if not tool_name.startswith("mm_"):
-        return None
+    """Escalate sensitive mm_* calls — and direct `mm` invocations from the shell / code / file tools — to the
+    Hermes approval gate (fails closed without a human)."""
     args = args or {}
+    if not tool_name.startswith("mm_"):
+        if _shell_guard_enabled():
+            try:
+                sub = shell_guard.detect_in_args(tool_name, args)
+            except Exception:  # never let the detector break other tools
+                sub = None
+            if sub:
+                return shell_guard.approval_directive(tool_name, sub, args)
+        return None
     try:
         message = describe_intent(tool_name, args)
     except Exception:  # never let a formatting bug skip the gate
@@ -132,6 +150,8 @@ def _slash_wallet(raw_args: str = "") -> str:
 
 def register(ctx) -> None:
     """Called once by the Hermes plugin loader."""
+    global _ctx_get
+    _ctx_get = ctx.get_config
     tools.set_context(ctx)
     watcher.configure(ctx)
     for schema in schemas.ALL:

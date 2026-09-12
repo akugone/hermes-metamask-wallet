@@ -101,6 +101,10 @@ That gives you two safe patterns out of the box, see [docs/cron-recipes.md](docs
 - `pre_tool_call` approve directives go through Hermes' own gate (`request_tool_approval`): the model
   cannot skip, answer or time out the prompt.
 - The watcher only reads (`mm wallet requests watch`) and only injects a short system notice.
+- **Shell bypass guard.** The same `pre_tool_call` hook watches the `terminal`, `execute_code`, `write_file` and
+  `patch` tools: a direct `mm transfer …`, `mm wallet send-transaction …`, a script that spawns `mm` for a write,
+  etc. is escalated to the approval prompt as a bypass attempt (setting `guard_shell_mm`, default on). Best
+  effort against obvious spellings; MetaMask's policy and 2FA remain the last line either way.
 
 ## Development
 
