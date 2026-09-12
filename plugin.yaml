@@ -1,0 +1,39 @@
+name: metamask-wallet
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+kind: standalone
+description: >-
+  MetaMask Agent Wallet for Hermes — chat-only setup, balances, prices, history, quotes,
+  and approval-gated transfers, swaps and signatures over the `mm` CLI, with a background
+  watcher for MetaMask 2FA. Keys never touch Hermes: MetaMask holds them (TEE or BYOK).
+author: Martin Leclercq
+license: MIT
+tags: [web3, wallet, metamask, evm, payments]
+provides_tools:
+  - mm_status
+  - mm_setup
+  - mm_balance
+  - mm_market
+  - mm_history
+  - mm_swap_quote
+  - mm_transfer
+  - mm_swap_execute
+  - mm_sign
+  - mm_requests
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+config_schema:
+  default_chain_id:
+    type: int
+    default: 8453
+    description: "EVM chain used when the user does not name one (8453 = Base)."
+  default_currency:
+    type: str
+    default: "usd"
+    description: "Fiat currency for balance and price conversions (usd, eur, ...)."
+  command_timeout:
+    type: int
+    default: 90
+    description: "Seconds to wait for a single mm command before giving up."

@@ -1,0 +1,29 @@
+# Draft entry for NousResearch/hermes-agent/plugin-catalog/metamask-wallet.yaml
+# Rules: exact 40-hex commit sha, at least 2 weeks old, submitted by the repo owner.
+name: metamask-wallet
+repo: https://github.com/akugone/hermes-metamask-wallet
+sha: <fill with the v0.1.0 commit sha once it is 2 weeks old>
+subdir: ""
+description: MetaMask Agent Wallet for Hermes — chat-only setup, reads, and approval-gated transfers/swaps/signatures with a background 2FA watcher. Keys stay in MetaMask.
+maintainer: akugone
+tier: community
+requires_hermes: ">=0.21"
+docs_url: https://github.com/akugone/hermes-metamask-wallet
+platforms: [macos, linux]
+capabilities:
+  provides_tools:
+    - mm_status
+    - mm_setup
+    - mm_balance
+    - mm_market
+    - mm_history
+    - mm_swap_quote
+    - mm_transfer
+    - mm_swap_execute
+    - mm_sign
+    - mm_requests
+  provides_hooks:
+    - pre_tool_call
+    - post_tool_call
+  provides_middleware: []
+  requires_env: []
