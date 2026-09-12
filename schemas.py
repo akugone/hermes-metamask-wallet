@@ -240,5 +240,46 @@ MM_REQUESTS = {
     },
 }
 
+MM_POLICY = {
+    "name": "mm_policy",
+    "description": (
+        "Read or change the Guard Mode policy of the MetaMask server wallet: the rolling 24h outflow limit (USD), "
+        "the address allowlist / blocklist, and the allowed chains. THIS IS WHAT DECIDES WHETHER A TRANSACTION NEEDS "
+        "2FA: a fresh wallet has a 0 USD limit and an empty allowlist, so every transfer asks the user to approve on "
+        "their phone or email. Transactions to allowlisted addresses that stay under the limit run without 2FA — the "
+        "prerequisite for anything unattended (cron).\n"
+        "action='get' (read-only): current policy with a plain-words hint. action='template': MetaMask's reference YAML. "
+        "action='set': apply the given changes on top of the current policy. Hermes asks the user to approve the exact "
+        "change; MetaMask then asks for ONE 2FA when the change broadens the policy (higher/removed limit, new allowlisted "
+        "address or chain, removed blocklist entry). Never call set on your own initiative, never remove the limit "
+        "unless the user explicitly asks for unlimited outflow, and restate the change in plain words first."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["get", "template", "set"]},
+            "outflow_limit_usd": {"type": "number",
+                                  "description": "set: new rolling 24h outflow limit in USD (0 = every transaction needs 2FA)."},
+            "remove_outflow_limit": {"type": "boolean",
+                                     "description": "set: remove the 24h limit entirely (unlimited). Only when the user explicitly asks."},
+            "allowlist_add": {"type": "array", "items": {"type": "object", "properties": {
+                                  "address": {"type": "string"}, "chain_id": {"type": "integer"}}, "required": ["address"]},
+                              "description": "set: recipients / contracts to allowlist. chain_id 0 (default) = all chains."},
+            "allowlist_remove": {"type": "array", "items": {"type": "object", "properties": {
+                                     "address": {"type": "string"}, "chain_id": {"type": "integer"}}, "required": ["address"]},
+                                 "description": "set: entries to drop from the allowlist. chain_id 0 (default) removes the address on every chain."},
+            "blocklist_add": {"type": "array", "items": {"type": "object", "properties": {
+                                  "address": {"type": "string"}, "chain_id": {"type": "integer"}}, "required": ["address"]},
+                              "description": "set: addresses to block. chain_id 0 (default) = all chains."},
+            "blocklist_remove": {"type": "array", "items": {"type": "object", "properties": {
+                                     "address": {"type": "string"}, "chain_id": {"type": "integer"}}, "required": ["address"]},
+                                 "description": "set: entries to drop from the blocklist."},
+            "allowed_chains_add": {"type": "array", "items": {"type": "integer"},
+                                   "description": "set: extra chain ids to allow (service defaults cannot be removed)."},
+        },
+        "required": ["action"],
+    },
+}
+
 ALL = (MM_STATUS, MM_SETUP, MM_BALANCE, MM_MARKET, MM_HISTORY, MM_SWAP_QUOTE,
-       MM_TRANSFER, MM_SWAP_EXECUTE, MM_SIGN, MM_REQUESTS)
+       MM_TRANSFER, MM_SWAP_EXECUTE, MM_SIGN, MM_REQUESTS, MM_POLICY)

@@ -1,7 +1,7 @@
 """metamask-wallet — MetaMask Agent Wallet for Hermes Agent.
 
-Registers ten ``mm_*`` tools over the MetaMask ``mm`` CLI, a ``pre_tool_call`` hook that escalates every
-fund-moving / signing call (and sensitive setup steps) to Hermes' human-approval gate, a ``post_tool_call``
+Registers eleven ``mm_*`` tools over the MetaMask ``mm`` CLI, a ``pre_tool_call`` hook that escalates every
+fund-moving / signing call, every policy change and sensitive setup steps to Hermes' human-approval gate, a ``post_tool_call``
 hook that hands requests awaiting MetaMask 2FA to a background watcher, a ``/wallet`` slash command and a
 bundled skill. Keys never enter Hermes: MetaMask holds them (server wallet in a TEE, or the user's BYOK).
 """
@@ -15,23 +15,30 @@ from typing import Any, Dict, Optional
 
 from . import jobs
 from . import mm_client as mm
-from . import schemas, shell_guard, tools, tools_write, watcher
+from . import schemas, shell_guard, tools, tools_policy, tools_write, watcher
 
 logger = logging.getLogger(__name__)
 
 TOOLSET = "metamask"
 _EMOJI = {"mm_status": "🦊", "mm_setup": "🔑", "mm_balance": "💰", "mm_market": "📈", "mm_history": "🧾",
-          "mm_swap_quote": "🔁", "mm_transfer": "💸", "mm_swap_execute": "🔁", "mm_sign": "✍️", "mm_requests": "⏳"}
+          "mm_swap_quote": "🔁", "mm_transfer": "💸", "mm_swap_execute": "🔁", "mm_sign": "✍️", "mm_requests": "⏳", "mm_policy": "🛡️"}
 
 # Every tool here moves funds or signs: always escalated, allow-list grain = one exact intent.
 WRITE_TOOLS = frozenset({"mm_transfer", "mm_swap_execute", "mm_sign"})
-HANDLERS: Dict[str, Any] = {**tools.HANDLERS, **tools_write.HANDLERS}
+HANDLERS: Dict[str, Any] = {**tools.HANDLERS, **tools_write.HANDLERS, **tools_policy.HANDLERS}
+
+
+def _is_gated_write(tool_name: str, args: Dict[str, Any]) -> bool:
+    """Fund-moving / signing tools, plus a policy change: exact-intent allow-list grain, blocked when invalid."""
+    return tool_name in WRITE_TOOLS or (tool_name == "mm_policy" and (args.get("action") or "get") == "set")
 
 
 def describe_intent(tool_name: str, args: Dict[str, Any]) -> Optional[str]:
     """One human-readable sentence for the approval prompt, built from validated args only."""
     if tool_name in WRITE_TOOLS:
         return tools_write.describe(tool_name, args)
+    if tool_name == "mm_policy":
+        return tools_policy.describe(args) if (args.get("action") or "get") == "set" else None
     if tool_name == "mm_setup":
         action = args.get("action")
         if action == "install_cli":
@@ -72,7 +79,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[Dict[str, Any]] = None, *
         message = describe_intent(tool_name, args)
     except Exception:  # never let a formatting bug skip the gate
         message = None
-    if tool_name in WRITE_TOOLS:
+    if _is_gated_write(tool_name, args):
         if not message:
             # Invalid arguments: block outright rather than run an un-describable write.
             return {"action": "block", "message": f"BLOCKED: {tool_name} called with invalid arguments; "
@@ -87,7 +94,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[Dict[str, Any]] = None, *
 def _post_tool_call(tool_name: str = "", args: Optional[Dict[str, Any]] = None, result: Any = None,
                     task_id: str = "", session_id: str = "", **kwargs: Any) -> None:
     """Hand a request that is still pending (typically AWAITING_MFA) to the background watcher."""
-    if tool_name not in WRITE_TOOLS or not isinstance(result, str):
+    if not (tool_name in WRITE_TOOLS or tool_name == "mm_policy") or not isinstance(result, str):
         return
     try:
         payload = json.loads(result)

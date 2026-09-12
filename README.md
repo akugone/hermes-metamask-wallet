@@ -41,6 +41,7 @@ at the Hermes prompt, and the shell-bypass guard.
 | "Do that swap" | `mm_swap_execute` by `quoteId` — same two gates |
 | "Sign this message" / "Sign this permit" | `mm_sign` — plain message or EIP-712, same two gates |
 | "Anything waiting for me?" | `mm_requests` — pending requests with their intent and status |
+| "Raise my daily limit to 100 $ and allowlist 0x…" | `mm_policy` — Hermes approval → one MetaMask 2FA → routine transactions to that address stop asking for 2FA |
 | `/wallet`, `/wallet requests` | Instant plain-text status card, no model turn |
 
 ## Install
@@ -75,6 +76,7 @@ Requirements: Node.js 22.18+ (Hermes ships its own), macOS or Linux, Hermes ≥ 
 | `mm_transfer` | **Hermes approval + MetaMask policy** | `mm transfer`; with `gas_speed` / `max_fee_gwei` / `priority_fee_gwei`, `mm wallet send-transaction` with an explicit EIP-1559 payload |
 | `mm_swap_execute` | **Hermes approval + MetaMask policy** | `mm swap execute` |
 | `mm_sign` | **Hermes approval + MetaMask policy** | `mm wallet sign-message`, `mm wallet sign-typed-data` |
+| `mm_policy` | read for `get` / `template`; **Hermes approval + MetaMask 2FA on broadening** for `set` | `mm wallet policy get`, `mm wallet policy template`, `mm wallet policy set --policy <yaml> --no-wait` |
 
 Settings (`plugins.entries.metamask-wallet.settings` in `~/.hermes/config.yaml`):
 
@@ -85,8 +87,8 @@ Settings (`plugins.entries.metamask-wallet.settings` in `~/.hermes/config.yaml`)
 | `command_timeout` | `90` | Seconds per `mm` call |
 | `guard_shell_mm` | `true` | Escalate direct `mm` write commands from `terminal` / `execute_code` / `write_file` / `patch` |
 
-Deliberately **not** exposed to the agent: changing the policy, switching trading mode, reading or
-exporting the mnemonic, wallet password management.
+Deliberately **not** exposed to the agent: switching trading mode (Guard ↔ Beast), reading or exporting the
+mnemonic, wallet password management. Changing the policy *is* exposed (`mm_policy`), but gated like a transfer.
 
 ## How a transfer flows
 
@@ -104,19 +106,49 @@ If MetaMask's fee estimate is rejected by the chain (`rpc_fee_too_low`, seen on 
 **NOT SENT** and the model may propose one retry with explicit fees, with your go, which routes through
 `send-transaction`.
 
+## Stop 2FA on routine transactions (the prerequisite for cron)
+
+**A fresh server wallet has a 0 USD outflow limit and an empty allowlist.** Every outgoing transaction is
+therefore a policy violation, and MetaMask asks you to approve it by e-mail or push — even 1 USDC. That is not
+a bug, it is the wallet telling you it has never been configured. Nobody can click an e-mail link from a cron
+job, so unattended writes are impossible until you change the policy.
+
+In Guard Mode, MetaMask only asks for 2FA when a transaction is **outside the policy**: recipient or contract not
+allowlisted, rolling 24 h outflow limit exceeded, Blockaid flags it as malicious or risky. A transaction that
+fits the policy runs with no approval at all. So the "bypass" is simply to describe what routine looks like,
+once, and let MetaMask enforce it:
+
+> "Raise my 24 h outflow limit to 100 $ and allowlist 0x1234…abcd on all chains."
+
+Hermes shows its approval prompt for that exact change; you accept; MetaMask asks for **one** 2FA because the
+change broadens the policy; you approve it on your phone or e-mail. From then on, transfers to that address that
+keep the 24 h outflow under 100 $ go through without any 2FA. Anything else — a new recipient, a bigger amount, a
+flagged contract — still asks you, and Blockaid can never be switched off. Lowering the limit or removing an
+address applies immediately, no 2FA.
+
+`mm_policy action='get'` shows the current policy and tells you in plain words whether routine transactions
+will ask for 2FA. Do not remove the limit altogether: the tool can (`remove_outflow_limit`), the approval prompt
+says so in capitals, and it is the one change we recommend never approving from a chat.
+
 ## Cron and automation
 
 Hermes cron jobs run without a human, so by default every write is blocked and every read works.
-Two safe patterns, see [docs/cron-recipes.md](docs/cron-recipes.md):
+Three steps make a write safe to run unattended, see [docs/cron-recipes.md](docs/cron-recipes.md):
 
-- **Passive monitoring** — balances, positions, unexpected outflows, price alerts. Reads only.
-- **DCA under limits** — grant "always" once, interactively, for the exact intent
-  (*"Swap 50 USDC for ETH on Base (8453)"*); MetaMask's outflow limit bounds the damage if anything
-  goes wrong. Keep `approvals.single_query_mode` and `approvals.cron_mode` at their defaults.
+1. **MetaMask policy** — allowlist the recipient and set a 24 h outflow limit with `mm_policy` (one 2FA, once).
+   Without this the job would stop at `AWAITING_MFA` every time.
+2. **Hermes "always"** — run the write once interactively and answer **always** to the exact intent
+   (*"Swap 50 USDC for ETH on Base (8453)"*). A different amount, recipient or chain prompts again.
+3. **Keep the defaults** — `approvals.single_query_mode` and `approvals.cron_mode` stay on `deny`, so anything
+   not pre-approved is blocked rather than waiting on a prompt nobody will answer.
+
+Two patterns: **passive monitoring** (balances, positions, unexpected outflows, price alerts — reads only) and
+**DCA / recurring payments under limits** — MetaMask's outflow limit bounds the damage if anything goes wrong.
 
 ## Security model
 
-- No Python dependencies, no network code of its own: every call is a subprocess to `mm --json`.
+- No Python dependencies beyond what Hermes already ships (PyYAML, for the policy), no network code of its own:
+  every call is a subprocess to `mm --json`.
 - Secrets never go through argv. The CLI token is passed through `MM_CLI_TOKEN` only (no fallback);
   BYOK uses `MM_MNEMONIC`; the plugin refuses to accept a seed phrase from the chat.
 - Free-text values (`--message`, `--payload`, `--intent`) are passed as `--flag=value`, so a value
@@ -126,6 +158,11 @@ Two safe patterns, see [docs/cron-recipes.md](docs/cron-recipes.md):
   characters and length-capped. A write with invalid arguments is blocked, not retried.
 - `pre_tool_call` approve directives go through Hermes' own gate (`request_tool_approval`): the model
   cannot skip, answer or time out the prompt. "Always" keys on a hash of the exact sentence.
+- **Policy changes are writes.** `mm_policy action='set'` is validated (addresses, chain ids, USD amount), described
+  from the validated values ("Change MetaMask wallet policy: set the 24h outflow limit to 100 USD; allowlist 0x… on
+  all chains"), gated by the Hermes prompt, then by MetaMask's 2FA for any broadening change. The plugin merges the
+  request into the current policy (never replaces it blindly) and refuses a no-op. Removing the limit is spelled
+  out in capitals in the prompt.
 - **Shell bypass guard.** The same hook watches the `terminal`, `execute_code`, `write_file` and `patch`
   tools: a direct `mm transfer …`, `mm wallet send-transaction …`, a script that spawns `mm` for a
   write, etc. is escalated as a bypass attempt (`guard_shell_mm`). Best effort against the obvious
@@ -139,11 +176,11 @@ Two safe patterns, see [docs/cron-recipes.md](docs/cron-recipes.md):
 ```bash
 hermes plugins doctor ~/.hermes/plugins/metamask-wallet --ci
 hermes plugins validate ~/.hermes/plugins/metamask-wallet
-pytest -q ~/.hermes/plugins/metamask-wallet/tests      # 54 tests, mm is mocked
+pytest -q ~/.hermes/plugins/metamask-wallet/tests      # mm is mocked; PyYAML needed for the policy tests
 ```
 
 Layout: `mm_client.py` (subprocess + NDJSON parsing) · `tools.py` (setup and reads) · `tools_write.py`
-(gated writes) · `jobs.py` (job status helpers) · `watcher.py` (background MFA follow-up) ·
+(gated writes) · `tools_policy.py` (policy YAML, gated policy changes) · `jobs.py` (job status helpers) · `watcher.py` (background MFA follow-up) ·
 `shell_guard.py` (bypass detection) · `schemas.py` · `skills/` (bundled skill) · `docs/`.
 
 Roadmap: Desktop panel (connect button, status chip, pending-request badge) · x402 payments through the

@@ -23,7 +23,7 @@ def _install_fake_run(tools, monkeypatch, responses):
 def test_register_wires_everything(plugin, fake_ctx):
     plugin.register(fake_ctx)
     assert set(fake_ctx.tools) == {"mm_status", "mm_setup", "mm_balance", "mm_market", "mm_history", "mm_swap_quote",
-                                   "mm_transfer", "mm_swap_execute", "mm_sign", "mm_requests"}
+                                   "mm_transfer", "mm_swap_execute", "mm_sign", "mm_requests", "mm_policy"}
     assert "post_tool_call" in fake_ctx.hooks
     assert fake_ctx.tools["mm_status"]["check_fn"] is None
     assert fake_ctx.tools["mm_balance"]["check_fn"] is not None

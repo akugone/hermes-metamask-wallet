@@ -1,11 +1,12 @@
 name: metamask-wallet
-version: 0.2.0
+version: 0.3.0
 manifest_version: 2
 api_version: 1
 kind: standalone
 description: >-
   MetaMask Agent Wallet for Hermes — chat-only setup, balances, prices, history, quotes,
-  and approval-gated transfers, swaps and signatures over the `mm` CLI, with a background
+  approval-gated transfers, swaps and signatures, and a gated policy editor (outflow limit,
+  allowlist) so in-policy transactions run without 2FA — all over the `mm` CLI, with a background
   watcher for MetaMask 2FA. Keys never touch Hermes: MetaMask holds them (TEE or BYOK).
 author: Martin Leclercq
 license: MIT
@@ -21,6 +22,7 @@ provides_tools:
   - mm_swap_execute
   - mm_sign
   - mm_requests
+  - mm_policy
 provides_hooks:
   - pre_tool_call
   - post_tool_call
