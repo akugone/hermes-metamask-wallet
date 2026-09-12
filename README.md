@@ -113,6 +113,9 @@ pytest -q ~/.hermes/plugins/metamask-wallet/tests
 Roadmap: Desktop panel (connect button, status chip, pending-request badge) · x402 payments through the
 wallet · Hermes plugin-catalog listing once the release is two weeks old.
 
+See also [mm-plugin-allowances](https://github.com/akugone/mm-plugin-allowances), a plugin for the `mm` CLI itself
+that audits and revokes ERC-20 allowances — once installed, Hermes can drive it through the same wallet.
+
 ## License
 
 MIT
