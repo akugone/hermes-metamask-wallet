@@ -19,6 +19,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: NousResearch/hermes-agent/.github/actions/plugin-validate@main
         with:
-          path: .
+          path: plugin
+      # hermes-agent refuses wheel builds (setup.py guard), so `pip install git+…` — what the upstream
+      # plugin-validate composite action does — fails. Editable install from a checkout is the supported
+      # CI route (it is what hermes-agent's own plugin-catalog CI uses).
+      - uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: main
+          path: hermes-agent
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ./hermes-agent
+      - run: hermes plugins validate ./plugin
