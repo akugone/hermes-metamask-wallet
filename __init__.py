@@ -90,25 +90,41 @@ def _slash_wallet(raw_args: str = "") -> str:
     if sub.startswith("req"):
         payload = json.loads(tools_write.mm_requests({"action": "list"}))
         if not payload.get("ok"):
-            return f"⏳ Pending requests unavailable: {payload.get('error', {}).get('message', '?')}"
-        return "⏳ Pending MetaMask requests:\n" + json.dumps(payload.get("data"), indent=2, default=str)[:1500]
+            return f"⏳ **Pending requests unavailable** — {payload.get('error', {}).get('message', '?')}"
+        reqs = (payload.get("data") or {}).get("requests") or []
+        if not reqs:
+            return "⏳ **No pending MetaMask requests.**"
+        lines = ["⏳ **Pending MetaMask requests**", ""]
+        for r in reqs[:10]:
+            intent = r.get("intent") or r.get("kind") or "request"
+            st = r.get("status") or "?"
+            marker = "🟢" if st in jobs.TERMINAL_STATUSES else "🟠"
+            tx = f" · tx `{jobs.short_address(r['txHash'])}`" if r.get("txHash") else ""
+            lines.append(f"- {marker} **{intent}** — `{st}`{tx} · id `{str(r.get('pollingId', ''))[:8]}`")
+        return "\n".join(lines)
     try:
         payload = json.loads(tools.mm_status({}))
     except Exception as exc:  # pragma: no cover
-        return f"MetaMask status unavailable: {exc}"
+        return f"🦊 **MetaMask Agent Wallet** — status unavailable: {exc}"
     d = payload.get("data", {})
     if not d.get("installed"):
-        return "🦊 MetaMask Agent Wallet: CLI not installed. Ask me to set it up."
-    lines = [f"🦊 MetaMask Agent Wallet · mm {d.get('version') or '?'}",
-             f"Signed in: {'yes' if d.get('authenticated') else 'no'} · Wallet: {'ready' if d.get('initialized') else 'not initialised'}"]
+        return "🦊 **MetaMask Agent Wallet** — 🔴 CLI not installed. Ask me to set it up."
+    ready = d.get("authenticated") and d.get("initialized")
+    light = "🟢" if ready else ("🟠" if d.get("authenticated") else "🔴")
+    lines = [f"🦊 **MetaMask Agent Wallet** {light} · mm {d.get('version') or '?'}", ""]
+    lines.append(f"- **Signed in:** {'yes' if d.get('authenticated') else 'no'}")
+    lines.append(f"- **Wallet:** {'ready' if d.get('initialized') else 'not initialised'}")
+    init = d.get("init") or {}
+    if isinstance(init, dict) and init.get("walletMode"):
+        lines.append(f"- **Mode:** {init['walletMode']}")
     if d.get("address"):
-        lines.append(f"Address: {d['address']}")
+        lines.append(f"- **Address:** `{d['address']}`")
     if d.get("trading_mode"):
-        lines.append(f"Trading mode: {d['trading_mode']}")
+        lines.append(f"- **Trading mode:** {str(d['trading_mode']).upper()}")
     if watcher.active_ids():
-        lines.append(f"Watching {len(watcher.active_ids())} pending request(s) — /wallet requests")
-    if d.get("next_step") and not d.get("initialized"):
-        lines.append(d["next_step"])
+        lines.append(f"- **Watching:** {len(watcher.active_ids())} pending request(s) — `/wallet requests`")
+    if d.get("next_step") and not ready:
+        lines += ["", f"_{d['next_step']}_"]
     return "\n".join(lines)
 
 
